@@ -1,0 +1,968 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "This CloudFormation Template builds a Serverless Solution for Querying Amazon Cost & Usage Report!. It creates an S3 bucket that will be used to store your Cost & Usage Reports after they have been extracted and transformed. The extraction and transformation is done by an Amazon Lambda function that is also created by this template. This Lambda functions job also includes, the creation of an Amazon Athena database and table. After table creation, it adds the partition to the Athena (or Hive) meta-data store. Something to note, on the Athena table is crreated from the column title/header field of the Cost & Usage report. This means that the table schema will keep up with any changes made by Amazon billing to the Cost & Usage Report. A few other things created by this CloudFormation template are an IAM LambdaFullAccess Role and Environment Variables for Lambda.",
+
+	"Parameters": {
+
+
+		"CostnUsageReport": {
+			"Description": "Please enter the the name of your Cost & Usage Report",
+			"Type": "String",
+			"ConstraintDescription": "This field should only hold the name of your Cost & Usage Report."
+		},
+
+
+		"s3CURBucket": {
+			"Description": "Please enter the name of the S3 Bucket in which the Amazon Billing System currently writes your Cost & Usage Reports. You must enter the name only, for eg. MYBUCKETNAME ",
+			"Type": "String"
+		},
+
+		"S3BucketName": {
+			"Type": "String",
+			"Description": "This solution creates one S3 bucket to store your transformed CUR. Please enter the name you would like this bucket to have. The bucket names must be a series of one or more labels. It can contain lowercase letters, numbers, and hyphens but bucket names must not be formatted as an IP address (e.g., 192.168.5.4). Each label must start and end with a lowercase letter or a number.",
+			"MinLength": "3",
+			"MaxLength": "63"
+			
+		},
+
+		"NDJSONS3BucketName": {
+			"Type": "String",
+			"Description": "The name of the S3 Bucket being created to store your NDJSON Formatted reports. The bucket names must be a series of one or more labels. It can contain lowercase letters, numbers, and hyphens but bucket names must not be formatted as an IP address (e.g., 192.168.5.4). Each label must start and end with a lowercase letter or a number."
+			
+		},
+
+		"S3PrefixPath": {
+			"Type": "String",
+			"Description": "Please enter any S3 prefix that you created inside your bucket to store your report. For eg. If you created the prefix 'great-reports' to hold your report 'my-report', which makes your prefix path 'bucketname/great-reports/my-report/' then you would simply enter great-reports. If you created another prefix inside great-reports then you would enter great-reports/anyother-prefix.", 
+			"MinLength": "0",
+			"MaxLength": "63"
+			
+		}
+
+
+
+	},
+
+
+	"Mappings": {
+		"RegionMap": {
+
+			"us-east-1": { "bucketname": "a-athena-nvirginia" }
+
+		}
+	},
+
+
+
+	"Resources": {
+		
+
+		"myS3Bucket": {
+			"Type": "AWS::S3::Bucket",
+			"Properties": {
+				"BucketName": { "Ref": "S3BucketName" }
+
+			}
+		},
+
+	
+		"NDJSONS3Bucket": {
+			"Type": "AWS::S3::Bucket",
+			"DependsOn": ["LambdaInvokePolicy"],
+			"Properties": {
+				"AccessControl": "BucketOwnerFullControl",
+				"BucketName": {
+
+							"Fn::Sub": "${NDJSONS3BucketName}"
+						 
+					},
+				"NotificationConfiguration" : {
+				  "LambdaConfigurations" : [{
+				  "Function" : { "Fn::Join": ["", [ "arn:aws:lambda:",{ "Ref" : "AWS::Region" },":",{"Ref": "AWS::AccountId" },":function:aws-cost-n-usage-Athena-lambda-fn-C"] ]	},
+				  "Event" : "s3:ObjectCreated:*",
+				  "Filter" : {
+					"S3Key" : {
+					  "Rules" : [{
+						"Name" : "suffix",
+						"Value" : "json-array.csv"
+					  }]
+					}
+				  }
+				  }]
+				}
+				
+	
+			}
+		},
+
+		
+		"LambdaInvokePolicy": {
+			"Type": "AWS::Lambda::Permission",
+			"Properties": {
+				"FunctionName": {
+					"Fn::GetAtt": [
+						"AthenaCURLambdaFn",
+						"Arn"
+					]
+				},
+				"Action": "lambda:InvokeFunction",
+				"Principal": "s3.amazonaws.com",
+				"SourceAccount": {
+					"Ref": "AWS::AccountId"
+				},
+				"SourceArn": {
+					"Fn::Join": [
+						"",
+						[
+						  "arn:aws:s3:::",
+						  {
+							"Fn::Sub": "${NDJSONS3BucketName}"
+						  }
+						]
+					  ]
+				}
+			}
+			
+		},
+
+
+		"LambdaExecutionRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [{ "Effect": "Allow", "Principal": { "Service": ["lambda.amazonaws.com"] }, "Action": ["sts:AssumeRole"] }]
+				},
+				"Path": "/",
+				"Policies": [{
+					"PolicyName": "lambdaroot",
+					"PolicyDocument": {
+						"Version": "2012-10-17",
+						"Statement": [
+							{
+		
+								"Effect": "Allow",
+								"Action": [
+									"glue:GetCrawler",
+									"glue:GetDataCatalogEncryptionSettings",
+									"glue:BatchGetDevEndpoints",
+									"glue:CreateClassifier",
+									"cloudwatch:DeleteAlarms",
+									"glue:GetWorkflowRunProperties",
+									"glue:DeleteWorkflow",
+									"glue:UpdateCrawler",
+									"glue:GetDevEndpoint",
+									"glue:GetSecurityConfiguration",
+									"glue:UpdateWorkflow",
+									"glue:CreateScript",
+									"glue:UpdateTrigger",
+									"glue:GetTrigger",
+									"glue:GetJobRun",
+									"lambda:ListLayers",
+									"lambda:ListLayerVersions",
+									"glue:StartWorkflowRun",
+									"glue:StopCrawlerSchedule",
+									"glue:GetClassifier",
+									"glue:ListWorkflows",
+									"lambda:ListFunctions",
+									"glue:GetJobs",
+									"glue:DeleteCrawler",
+									"glue:GetTriggers",
+									"glue:GetWorkflowRun",
+									"glue:BatchStopJobRun",
+									"logs:CreateLogGroup",
+									"glue:CreateCrawler",
+									"glue:DeleteSecurityConfiguration",
+									"glue:GetMapping",
+									"glue:GetDevEndpoints",
+									"glue:BatchGetWorkflows",
+									"glue:ListDevEndpoints",
+									"glue:BatchGetJobs",
+									"lambda:ListEventSourceMappings",
+									"glue:StartCrawlerSchedule",
+									"glue:StartJobRun",
+									"cloudwatch:DescribeAlarms",
+									"glue:UpdateClassifier",
+									"glue:CreateWorkflow",
+									"glue:CreateMLTransform",
+									"glue:GetJob",
+									"glue:GetWorkflow",
+									"glue:GetCrawlers",
+									"glue:CreateSecurityConfiguration",
+									"glue:PutWorkflowRunProperties",
+									"glue:GetClassifiers",
+									"glue:CreateTrigger",
+									"glue:StopTrigger",
+									"glue:StopCrawler",
+									"lambda:GetAccountSettings",
+									"glue:DeleteJob",
+									"glue:StartTrigger",
+									"glue:DeleteDevEndpoint",
+									"glue:CreateJob",
+									"glue:PutDataCatalogEncryptionSettings",
+									"glue:ListMLTransforms",
+									"glue:StartCrawler",
+									"glue:ResetJobBookmark",
+									"glue:UpdateJob",
+									"glue:GetJobBookmark",
+									"glue:GetMLTransforms",
+									"glue:DeleteClassifier",
+									"glue:GetSecurityConfigurations",
+									"glue:ListTriggers",
+									"glue:ListJobs",
+									"cloudwatch:PutMetricAlarm",
+									"glue:UpdateCrawlerSchedule",
+									"glue:GetDataflowGraph",
+									"glue:BatchGetCrawlers",
+									"s3:ListAllMyBuckets",
+									"glue:BatchGetTriggers",
+									"glue:CreateDevEndpoint",
+									"glue:UpdateDevEndpoint",
+									"glue:GetWorkflowRuns",
+									"glue:GetPlan",
+									"glue:DeleteTrigger",
+									"glue:ListCrawlers",
+									"s3:GetBucketLocation",
+									"glue:GetCrawlerMetrics",
+									"glue:GetJobRuns",
+									"iam:ListRoles"
+								],
+								"Resource": "*"
+							},
+							{
+								"Effect": "Allow",
+								"Action": [
+									"glue:BatchCreatePartition",
+									"glue:SearchTables",
+									"glue:GetTableVersions",
+									"glue:GetPartitions",
+									"glue:GetMLTransform",
+									"glue:UpdateTable",
+									"glue:DeleteTable",
+									"glue:GetResourcePolicy",
+									"lambda:GetProvisionedConcurrencyConfig",
+									"glue:GetUserDefinedFunction",
+									"dynamodb:DescribeTable",
+									"glue:GetUserDefinedFunctions",
+									"glue:PutResourcePolicy",
+									"glue:TagResource",
+									"glue:UpdateDatabase",
+									"glue:GetTables",
+									"glue:CreateTable",
+									"glue:DeleteResourcePolicy",
+									"dynamodb:Scan",
+									"glue:DeleteUserDefinedFunction",
+									"glue:CreateConnection",
+									"s3:ListMultipartUploadParts",
+									"s3:PutObject",
+									"s3:GetObject",
+									"glue:GetPartition",
+									"glue:DeleteConnection",
+									"glue:UseMLTransforms",
+									"glue:BatchDeleteConnection",
+									"glue:BatchDeleteTable",
+									"glue:UpdateMLTransform",
+									"glue:DeletePartition",
+									"glue:GetConnections",
+									"glue:DeleteDatabase",
+									"glue:StartMLEvaluationTaskRun",
+									"glue:DeleteTableVersion",
+									"glue:BatchDeletePartition",
+									"glue:CreateUserDefinedFunction",
+									"glue:GetCatalogImportStatus",
+									"glue:DeleteMLTransform",
+									"glue:ImportCatalogToGlue",
+									"glue:GetTableVersion",
+									"glue:GetConnection",
+									"s3:AbortMultipartUpload",
+									"glue:UntagResource",
+									"glue:CreatePartition",
+									"glue:UpdatePartition",
+									"glue:StartImportLabelsTaskRun",
+									"glue:StartExportLabelsTaskRun",
+									"glue:UpdateUserDefinedFunction",
+									"glue:CancelMLTaskRun",
+									"glue:BatchGetPartition",
+									"glue:GetMLTaskRuns",
+									"dynamodb:Query",
+									"glue:GetDatabases",
+									"glue:GetTags",
+									"logs:PutLogEvents",
+									"glue:StartMLLabelingSetGenerationTaskRun",
+									"glue:GetTable",
+									"glue:GetDatabase",
+									"glue:GetMLTaskRun",
+									"glue:UpdateConnection",
+									"glue:CreateDatabase",
+									"glue:BatchDeleteTableVersion",
+									"dynamodb:PutItem",
+									"dynamodb:UpdateItem",
+									"dynamodb:DeleteItem",
+									"dynamodb:GetItem",
+                					"dynamodb:BatchGetItem"
+								],
+								"Resource": [
+									{ "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*:*" },
+									{ "Fn::Sub": "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/aws_billing_report" },
+									{ "Fn::Sub": "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/aws_billing_report/*" },
+									{ "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*" },
+									{ "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*" },
+									"arn:aws:glue:*:*:catalog",
+									"arn:aws:s3:::aws-athena-query-results-*/*"
+								]
+							},
+							{
+								
+								"Effect": "Allow",
+								"Action": [
+									"glue:BatchCreatePartition",
+									"glue:DeleteDatabase",
+									"glue:GetPartitions",
+									"lambda:GetLayerVersion",
+									"glue:BatchDeletePartition",
+									"glue:UpdateTable",
+									"s3:CreateBucket",
+									"glue:DeleteTable",
+									"s3:ListBucket",
+									"lambda:GetLayerVersionPolicy",
+									"logs:CreateLogStream",
+									"s3:AbortMultipartUpload",
+									"lambda:GetProvisionedConcurrencyConfig",
+									"glue:CreatePartition",
+									"glue:UpdatePartition",
+									"s3:ListBucketMultipartUploads",
+									"glue:UpdateDatabase",
+									"glue:CreateTable",
+									"glue:GetTables",
+									"lambda:GetEventSourceMapping",
+									"glue:BatchGetPartition",
+									"glue:GetDatabases",
+									"s3:ListMultipartUploadParts",
+									"glue:GetTable",
+									"glue:GetDatabase",
+									"s3:PutObject",
+									"s3:GetObject",
+									"s3:DeleteObject",
+									"glue:GetPartition",
+									"glue:CreateDatabase",
+									"glue:BatchDeleteTable",
+									"s3:GetBucketLocation",
+									"glue:DeletePartition",
+									"dynamodb:CreateTable"
+								],
+								"Resource": [
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "s3CURBucket" } ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "s3CURBucket" } , "/*" ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "S3BucketName" } ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "S3BucketName" } , "/*" ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "NDJSONS3BucketName" } ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "NDJSONS3BucketName" } , "/*" ]] },
+									{ "Fn::Sub": "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/aws_billing_report" },
+									{ "Fn::Sub": "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/aws_billing_report/*" },
+									{ "Fn::Sub": "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog" },
+									{ "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*" },
+									{ "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:event-source-mapping:*" },
+									{ "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:*:*" },
+									{ "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*:*" },
+									{ "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*" }
+								]
+							},
+							{
+								
+								"Effect": "Allow",
+								"Action": [
+									"s3:ListBucketMultipartUploads",
+									"lambda:ListVersionsByFunction",
+									"lambda:GetFunction",
+									"lambda:ListAliases",
+									"s3:CreateBucket",
+									"s3:ListBucket",
+									"lambda:GetFunctionConfiguration",
+									"lambda:ListProvisionedConcurrencyConfigs",
+									"lambda:ListFunctionEventInvokeConfigs",
+									"lambda:GetFunctionConcurrency",
+									"lambda:ListTags",
+									"lambda:GetFunctionEventInvokeConfig",
+									"lambda:GetAlias",
+									"s3:GetBucketLocation",
+									"lambda:GetPolicy"
+								],
+								"Resource": [
+									"arn:aws:s3:::*",
+									{ "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*" }
+								]
+							},
+							{
+								
+								"Effect": "Allow",
+								"Action": [
+									"s3:GetObject",
+									"s3:ListBucket"
+								],
+								"Resource": [
+
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "s3CURBucket" } ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "s3CURBucket" } , "/*" ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "S3BucketName" } ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "S3BucketName" } , "/*" ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "NDJSONS3BucketName" } ]] },
+									{ "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "NDJSONS3BucketName" } , "/*" ]] }
+								]
+							},
+							{
+								"Effect": "Allow",
+								"Action": [
+									"lambda:InvokeFunction"
+								],
+								"Resource": [
+									{ "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*" }
+								]
+							},
+							{
+								
+								"Effect": "Allow",
+								"Action": "s3:GetObject",
+								"Resource": "arn:aws:s3:::athena-examples*/*"
+							},
+							{
+								
+								"Effect": "Allow", 
+								"Action": [
+									"iam:ListRolePolicies",
+									"iam:ListAttachedRolePolicies",
+									"iam:GetRole",
+									"iam:GetRolePolicy",
+									"iam:PassRole",
+									"iam:SimulatePrincipalPolicy"
+								],
+								"Resource": { "Fn::Join" : ["", [ "arn:aws:iam::", { "Ref" : "AWS::AccountId" }, ":role/cost-n-usage-*" ]] }
+							},
+							{
+								
+								"Effect": "Allow", 
+								"Action": [
+									"iam:GetPolicy",
+									"iam:GetPolicyVersion"
+								],
+								"Resource": { "Fn::Join" : ["", [ "arn:aws:iam::", { "Ref" : "AWS::AccountId" }, ":policy/*" ]] }
+							},
+							{
+								
+								"Effect": "Allow",
+								"Action": "athena:*",
+								"Resource": [
+									"arn:aws:athena:*:*:datacatalog/*",
+									{ "Fn::Sub": "arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/*" }
+									
+								]
+							}
+						
+			]
+
+			}
+		}]
+		}
+		},
+
+		"CURLambdaFn": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"FunctionName": "aws-cost-n-usage-main-lambda-fn-A",
+				"Handler": "File-Reader-Main-Lmbda-Fn-A.handler",
+				"Role": {
+					"Fn::GetAtt": ["LambdaExecutionRole", "Arn"]
+				},
+				"Timeout": "900",
+				"Runtime": "nodejs12.x",
+				"MemorySize": 3000,
+				"Code": {
+					"S3Bucket": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "bucketname"] },
+					"S3Key": "File-Reader-Main-Lmbda-Fn-A.zip"
+				},
+				"Environment": {
+					"Variables": {
+						"S3_BUCKET": {
+							"Ref": "S3BucketName"
+						},
+
+						"iCUR_NAME": {
+							"Ref": "CostnUsageReport"
+						},
+
+						"CUR_S3_BUCKET": {
+							"Ref": "s3CURBucket"
+						},
+
+						"NDJSON_BUCKET": {
+							"Ref": "NDJSONS3BucketName"
+                        },
+
+
+						"REGIONX": {
+							"Ref": "AWS::Region"
+						},
+
+						"PREFIX_SET": {
+							"Ref": "S3PrefixPath"
+						}
+
+
+					}
+				}
+			}
+		},
+
+
+		"S3CURLambdaFn": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"FunctionName": "aws-cost-n-usage-S3-lambda-fn-B",
+				"Handler": "File-Reader-S3-CUR-Parser-Lmbda-B.handler",
+				"Role": {
+					"Fn::GetAtt": ["LambdaExecutionRole", "Arn"]
+				},
+				"Timeout": "900",
+				"Runtime": "nodejs12.x",
+				"MemorySize": 3000,
+				"Code": {
+					"S3Bucket": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "bucketname"] },
+					"S3Key": "File-Reader-S3-CUR-Parser-Lmbda-B.zip"
+				},
+				"Environment": {
+					"Variables": {
+						"S3_BUCKET": {
+							"Ref": "S3BucketName"
+						},
+
+						"iCUR_NAME": {
+							"Ref": "CostnUsageReport"
+						},
+
+						"CUR_S3_BUCKET": {
+							"Ref": "s3CURBucket"
+						},
+
+						"REGIONX": {
+							"Ref": "AWS::Region"
+						},
+
+						"NDJSON_BUCKET": {
+							"Ref": "NDJSONS3BucketName"
+                        },
+
+                        
+						"PREFIX_SET": {
+							"Ref": "S3PrefixPath"
+						}
+
+
+					}
+				}
+			}
+		},
+
+
+		"S3CURLambdaFnRetro": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"FunctionName": "aws-cost-n-usage-S3-lambda-fn-B-2i",
+				"Handler": "File-Reader-S3-CUR-Parser-Lmbda-B-2i.handler",
+				"Role": {
+					"Fn::GetAtt": ["LambdaExecutionRole", "Arn"]
+				},
+				"Timeout": "900",
+				"Runtime": "nodejs12.x",
+				"MemorySize": 3000,
+				"Code": {
+					"S3Bucket": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "bucketname"] },
+					"S3Key": "File-Reader-S3-CUR-Parser-Lmbda-B-2i.zip"
+				},
+				"Environment": {
+					"Variables": {
+						"S3_BUCKET": {
+							"Ref": "S3BucketName"
+						},
+
+						"iCUR_NAME": {
+							"Ref": "CostnUsageReport"
+						},
+
+						"CUR_S3_BUCKET": {
+							"Ref": "s3CURBucket"
+						},
+
+						"REGIONX": {
+							"Ref": "AWS::Region"
+						},
+
+						"NDJSON_BUCKET": {
+							"Ref": "NDJSONS3BucketName"
+                        },
+
+                        
+						"PREFIX_SET": {
+							"Ref": "S3PrefixPath"
+						}
+
+
+					}
+				}
+			}
+		},
+
+
+
+
+		"S3CURLambdaFnB": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"FunctionName": "aws-cost-n-usage-S3-lambda-fn-B-2",
+				"Handler": "File-Reader-S3-CUR-Parser-Lmbda-B-2.handler",
+				"Role": {
+					"Fn::GetAtt": ["LambdaExecutionRole", "Arn"]
+				},
+				"Timeout": "900",
+				"Runtime": "nodejs12.x",
+				"MemorySize": 3000,
+				"Code": {
+					"S3Bucket": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "bucketname"] },
+					"S3Key": "File-Reader-S3-CUR-Parser-Lmbda-B-2.zip"
+				},
+				"Environment": {
+					"Variables": {
+						"S3_BUCKET": {
+							"Ref": "S3BucketName"
+						},
+
+						"iCUR_NAME": {
+							"Ref": "CostnUsageReport"
+						},
+
+						"CUR_S3_BUCKET": {
+							"Ref": "s3CURBucket"
+						},
+
+						"REGIONX": {
+							"Ref": "AWS::Region"
+						},
+
+						"NDJSON_BUCKET": {
+							"Ref": "NDJSONS3BucketName"
+                        },
+                        
+						"PREFIX_SET": {
+							"Ref": "S3PrefixPath"
+						}
+
+
+					}
+				}
+			}
+		},
+
+		"S3CURLambdaFnBThree": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"FunctionName": "aws-cost-n-usage-S3-lambda-fn-B-3",
+				"Handler": "File-Reader-S3-CUR-Parser-Lmbda-B-3.handler",
+				"Role": {
+					"Fn::GetAtt": ["LambdaExecutionRole", "Arn"]
+				},
+				"Timeout": "900",
+				"Runtime": "nodejs12.x",
+				"MemorySize": 3000,
+				"Code": {
+					"S3Bucket": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "bucketname"] },
+					"S3Key": "File-Reader-S3-CUR-Parser-Lmbda-B-3.zip"
+				},
+				"Environment": {
+					"Variables": {
+						"S3_BUCKET": {
+							"Ref": "S3BucketName"
+						},
+
+						"iCUR_NAME": {
+							"Ref": "CostnUsageReport"
+						},
+
+						"CUR_S3_BUCKET": {
+							"Ref": "s3CURBucket"
+						},
+
+						"REGIONX": {
+							"Ref": "AWS::Region"
+						},
+
+						"NDJSON_BUCKET": {
+							"Ref": "NDJSONS3BucketName"
+                        },
+                        	
+						"PREFIX_SET": {
+							"Ref": "S3PrefixPath"
+						}
+
+
+					}
+				}
+			}
+		},
+
+		"S3CURLambdaFnDelete": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"FunctionName": "aws-cost-n-usage-de-dup-cur",
+				"Handler": "File-Reader-Dup-CUR-Deleter.handler",
+				"Role": {
+					"Fn::GetAtt": ["LambdaExecutionRole", "Arn"]
+				},
+				"Timeout": "900",
+				"Runtime": "nodejs12.x",
+				"MemorySize": 3000,
+				"Code": {
+					"S3Bucket": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "bucketname"] },
+					"S3Key": "File-Reader-Dup-CUR-Deleter.zip"
+				},
+				"Environment": {
+					"Variables": {
+						
+						"iCUR_NAME": {
+							"Ref": "CostnUsageReport"
+						},
+
+						"CUR_S3_BUCKET": {
+							"Ref": "s3CURBucket"
+						},
+
+						"REGIONX": {
+							"Ref": "AWS::Region"
+						}
+
+					}
+				}
+			}
+		},
+		
+        
+		"AthenaCURLambdaFn": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"FunctionName": "aws-cost-n-usage-Athena-lambda-fn-C",
+				"Handler": "File-Reader-Athena-Lambda-Fn-C.handler",
+				"Role": {
+					"Fn::GetAtt": ["LambdaExecutionRole", "Arn"]
+				},
+				"Timeout": "900",
+				"Runtime": "nodejs12.x",
+				"MemorySize": 1536,
+				"Code": {
+					"S3Bucket": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "bucketname"] },
+					"S3Key": "File-Reader-Athena-Lambda-Fn-C.zip"
+				},
+				"Environment": {
+					"Variables": {
+						"S3_BUCKET": {
+							"Ref": "S3BucketName"
+						},
+
+						"CUR_S3_BUCKET": {
+							"Ref": "s3CURBucket"
+						},
+						"NDJSON_BUCKET": {
+							"Ref": "NDJSONS3BucketName"
+												},
+						"REGIONX": {
+							"Ref": "AWS::Region"
+						}
+
+
+					}
+				}
+			}
+		},
+
+		
+		"InitFunction": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"Code": {
+					"ZipFile": "const AWS = require(\"aws-sdk\"); const response = require(\"cfn-response\"); const docClient = new AWS.DynamoDB.DocumentClient(); exports.handler = function(event, context) {    var darray = [];\n    darray.push(\"new-table-response\");\n    console.log(JSON.stringify(event,null,2));\n    var params = {\n      TableName: event.ResourceProperties.DynamoTableName,\n      Item:{\n          \"iKey\": 10007770157,\n          \"Flag\": 0,\n          \"TableDescription\": darray\n      }\n  };\ndocClient.put(params, function(err, data) { if (err) {  response.send(event, context, \"FAILED\", {});\n} else {  response.send(event, context, \"SUCCESS\", {});\n} }); };\n"
+				},
+				"Handler": "index.handler",
+				"Role": {
+					"Fn::GetAtt": [
+						"LambdaExecutionRole",
+						"Arn"
+					]
+				},
+				"Runtime": "nodejs12.x",
+				"Timeout": 60
+			}
+		},
+
+		"AthenaTable": {
+			"Type": "AWS::DynamoDB::Table",
+			"Properties": {
+
+				"TableName": "AthenaTable",
+
+				"KeySchema": {
+					"HashKeyElement": {
+						"AttributeName": "iKey",
+						"AttributeType": "N"
+					}
+				},
+
+
+				"ProvisionedThroughput": {
+					"ReadCapacityUnits": "50",
+					"WriteCapacityUnits": "50"
+				}
+			}
+		},
+
+		"InitializeDynamoDB": {
+			"Type": "Custom::InitFunction",
+			"DependsOn": "AthenaTable",
+			"Properties": {
+				"ServiceToken": {
+					"Fn::GetAtt": [
+						"InitFunction",
+						"Arn"
+					]
+				},
+				"DynamoTableName": {
+					"Ref": "AthenaTable"
+				}
+			}
+		},
+		
+		"InitFnA": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"Code": {
+					"ZipFile": "const AWS = require(\"aws-sdk\"); const response = require(\"cfn-response\"); var lambda = new AWS.Lambda();\n exports.handler = function(event, context) {  var Lmbda_params = {\n FunctionName: \"aws-cost-n-usage-S3-lambda-fn-B-2\",\n InvocationType: \"Event\",\n LogType: \"Tail\" };\n lambda.invoke(Lmbda_params, function(err, data) {\n if (err) { response.send(event, context, \"FAILED\", {});\n} else {  response.send(event, context, \"SUCCESS\", {});\n} })  };\n"
+				},
+				"Handler": "index.handler",
+				"Role": {
+					"Fn::GetAtt": [
+						"LambdaExecutionRole",
+						"Arn"
+					]
+				},
+				"Runtime": "nodejs12.x",
+				"Timeout": 60
+			}
+		},
+		
+		
+	"InitFnB": {
+				"Type": "AWS::Lambda::Function",
+				"Properties": {
+					"Code": {
+						"ZipFile": "const AWS = require(\"aws-sdk\");  const response = require(\"cfn-response\"); var lambda = new AWS.Lambda();\n exports.handler = function(event, context) {  var Lmbda_param = {\n FunctionName: \"aws-cost-n-usage-de-dup-cur\",\n InvocationType: \"Event\",\n LogType: \"Tail\" };\n lambda.invoke(Lmbda_param, function(err, data) {\n if (err) {response.send(event, context, \"FAILED\", {});\n} else {  response.send(event, context, \"SUCCESS\", {});}\n })  };\n"
+					},
+					"Handler": "index.handler",
+					"Role": {
+						"Fn::GetAtt": [
+							"LambdaExecutionRole",
+							"Arn"
+						]
+					},
+					"Runtime": "nodejs12.x",
+					"Timeout": 60
+				}
+			},
+			
+			
+			"InitializeHistoricalProcessing": {
+					"Type": "Custom::InitFnA",
+					"DependsOn": ["S3CURLambdaFnB","NDJSONS3Bucket"],
+					"Properties": {
+						"ServiceToken": {
+							"Fn::GetAtt": [
+								"InitFnA",
+								"Arn"
+							]
+						}
+						}
+					},
+				
+
+				"InitializeDeDupe": {
+						"Type": "Custom::InitFnB",
+						"DependsOn": "S3CURLambdaFnDelete",
+						"Properties": {
+							"ServiceToken": {
+								"Fn::GetAtt": [
+									"InitFnB",
+									"Arn"
+								]
+							}
+							
+							}
+						},
+
+						"SumzCURLambdaFn": {
+							"Type": "AWS::Lambda::Function",
+							"Properties": {
+								"FunctionName": "aws-cost-n-usage-three-month-view",
+								"Handler": "File-Reader-Three-Month-View-Athena-ParqTable-FN.lambda_handler",
+								"Role": {
+									"Fn::GetAtt": ["LambdaExecutionRole", "Arn"]
+								},
+								"Timeout": "900",
+								"Runtime": "python3.8",
+								"MemorySize": 3000,
+								"Code": {
+									"S3Bucket": { "Fn::FindInMap": ["RegionMap", { "Ref": "AWS::Region" }, "bucketname"] },
+									"S3Key": "File-Reader-Three-Month-View-Athena-ParqTable-FN.py.zip"
+								},
+								"Environment": {
+									"Variables": {
+										
+										"NDJSON_BUCKET": {
+											"Ref": "NDJSONS3BucketName"
+																},
+
+										"REGIONX": {
+											"Ref": "AWS::Region"
+										}
+				
+									}
+								}
+							}
+						},
+					
+						"CWScheduledRule": {
+							"Type": "AWS::Events::Rule",
+							"Properties": {
+								"Description": "ScheduledRule",
+								"ScheduleExpression": "rate(90 minutes)",
+								"State": "ENABLED",
+								"Targets": [{
+									"Arn": { "Fn::GetAtt": ["SumzCURLambdaFn", "Arn"] },
+									"Id": "aws-cost-n-usage-three-month-view"
+								}]
+							}
+						},
+						"PermissionForEventsToInvokeLambda": {
+							"Type": "AWS::Lambda::Permission",
+							"Properties": {
+								"FunctionName": { "Ref": "SumzCURLambdaFn" },
+								"Action": "lambda:InvokeFunction",
+								"Principal": "events.amazonaws.com",
+								"SourceArn": { "Fn::GetAtt": ["CWScheduledRule", "Arn"] }
+							}
+						}
+    
+
+
+
+
+	}
+}
+
+
+
+
+
